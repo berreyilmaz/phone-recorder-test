@@ -1,0 +1,195 @@
+
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Telefon Video Boyutu Testi</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 25px auto;
+      padding: 15px;
+    }
+    video {
+      width: 100%;
+      background: #222;
+      margin: 15px 0;
+    }
+    button, select {
+      padding: 12px;
+      margin: 6px 0;
+      width: 100%;
+      font-size: 16px;
+    }
+    #result {
+      white-space: pre-wrap;
+      background: #eee;
+      padding: 15px;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+
+<h2>Gerçek Telefon Video Testi</h2>
+
+<video id="preview" autoplay muted playsinline></video>
+
+<label>Hedef Bitrate</label>
+<select id="bitrate">
+  <option value="4000000">4 Mbps</option>
+  <option value="8000000">8 Mbps</option>
+</select>
+
+<label>Kayıt Süresi</label>
+<select id="duration">
+  <option value="15">15 saniye</option>
+  <option value="60">60 saniye</option>
+</select>
+
+<button id="start">Kaydı Başlat</button>
+
+<p id="status">Hazır</p>
+<div id="result"></div>
+
+<script>
+const preview = document.getElementById("preview");
+const statusText = document.getElementById("status");
+const result = document.getElementById("result");
+
+let stream;
+let recorder;
+
+async function startRecording() {
+  try {
+    result.textContent = "";
+
+    const bitrate = Number(
+      document.getElementById("bitrate").value
+    );
+
+    const duration = Number(
+      document.getElementById("duration").value
+    );
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30 }
+      },
+      audio: false
+    });
+
+    preview.srcObject = stream;
+
+    const track = stream.getVideoTracks()[0];
+    const settings = track.getSettings();
+
+    const mimeTypes = [
+      "video/mp4",
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm"
+    ];
+
+    const mimeType = mimeTypes.find(type =>
+      MediaRecorder.isTypeSupported(type)
+    );
+
+    if (!mimeType) {
+      throw new Error("Desteklenen video formatı bulunamadı.");
+    }
+
+    const chunks = [];
+
+    recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: bitrate
+    });
+
+    const startTime = performance.now();
+
+    recorder.ondataavailable = event => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+
+    recorder.onstop = () => {
+      const endTime = performance.now();
+      const actualDuration = (endTime - startTime) / 1000;
+
+      const blob = new Blob(chunks, {
+        type: recorder.mimeType
+      });
+
+      const actualMB = blob.size / 1000000;
+      const theoreticalMB = (bitrate * duration) / 8 / 1000000;
+
+      const actualMbps =
+        (blob.size * 8) / actualDuration / 1000000;
+
+      const deviation =
+        ((actualMB - theoreticalMB) / theoreticalMB) * 100;
+
+      const report = {
+        device: navigator.userAgent,
+        browser: navigator.userAgent,
+        requestedBitrate: bitrate / 1000000 + " Mbps",
+        recorderBitrate:
+          recorder.videoBitsPerSecond / 1000000 + " Mbps",
+        resolution: settings.width + "x" + settings.height,
+        requestedDuration: duration + " seconds",
+        actualDuration: actualDuration.toFixed(2) + " seconds",
+        format: recorder.mimeType,
+        theoreticalSize: theoreticalMB.toFixed(2) + " MB",
+        actualSize: actualMB.toFixed(2) + " MB",
+        measuredAverageBitrate: actualMbps.toFixed(2) + " Mbps",
+        deviation: deviation.toFixed(2) + "%"
+      };
+
+      result.textContent =
+        JSON.stringify(report, null, 2);
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `test_${bitrate / 1000000}Mbps_${duration}s`;
+      a.click();
+
+      statusText.textContent = "Kayıt tamamlandı.";
+
+      stream.getTracks().forEach(track => track.stop());
+      preview.srcObject = null;
+    };
+
+    recorder.start();
+
+    statusText.textContent =
+      "Kayıt başladı: " + duration + " saniye";
+
+    setTimeout(() => {
+      if (recorder.state === "recording") {
+        recorder.stop();
+      }
+    }, duration * 1000);
+
+  } catch (error) {
+    statusText.textContent = "Hata: " + error.message;
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+  }
+}
+
+document.getElementById("start").addEventListener(
+  "click",
+  startRecording
+);
+</script>
+
+</body>
+</html>
