@@ -5,66 +5,185 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Telefon Video Boyutu Testi</title>
+
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: Arial, sans-serif;
-      max-width: 600px;
+      max-width: 650px;
       margin: 25px auto;
       padding: 15px;
+      background: #f7f7f7;
+      color: #222;
     }
+
+    h2 {
+      text-align: center;
+    }
+
+    .container {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    }
+
     video {
       width: 100%;
       background: #222;
-      margin: 15px 0;
+      border-radius: 8px;
+      margin: 12px 0;
     }
+
+    label {
+      display: block;
+      font-weight: bold;
+      margin-top: 15px;
+    }
+
     button, select {
-      padding: 12px;
-      margin: 6px 0;
       width: 100%;
+      padding: 12px;
+      margin-top: 7px;
       font-size: 16px;
+      border-radius: 7px;
     }
+
+    button {
+      border: none;
+      background: #1769aa;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background: #999;
+      cursor: not-allowed;
+    }
+
+    #status {
+      padding: 12px;
+      background: #eef3f8;
+      border-radius: 7px;
+      margin-top: 15px;
+    }
+
     #result {
       white-space: pre-wrap;
-      background: #eee;
+      overflow-wrap: anywhere;
+      background: #f0f0f0;
       padding: 15px;
       margin-top: 15px;
+      border-radius: 7px;
+      font-size: 13px;
+    }
+
+    .download {
+      display: block;
+      text-align: center;
+      margin-top: 12px;
+      padding: 12px;
+      background: #16834a;
+      color: white;
+      text-decoration: none;
+      border-radius: 7px;
     }
   </style>
 </head>
+
 <body>
 
-<h2>Gerçek Telefon Video Testi</h2>
+<div class="container">
 
-<video id="preview" autoplay muted playsinline></video>
+  <h2>Telefon Video Boyutu Testi</h2>
 
-<label>Hedef Bitrate</label>
-<select id="bitrate">
-  <option value="4000000">4 Mbps</option>
-  <option value="8000000">8 Mbps</option>
-</select>
+  <p>
+    Bu uygulama telefon kamerasından video kaydı alır
+    ve gerçek dosya boyutunu hedef bitrate ile karşılaştırır.
+  </p>
 
-<label>Kayıt Süresi</label>
-<select id="duration">
-  <option value="15">15 saniye</option>
-  <option value="60">60 saniye</option>
-</select>
+  <video
+    id="preview"
+    autoplay
+    muted
+    playsinline>
+  </video>
 
-<button id="start">Kaydı Başlat</button>
+  <label for="bitrate">Hedef Bitrate</label>
 
-<p id="status">Hazır</p>
-<div id="result"></div>
+  <select id="bitrate">
+    <option value="4000000">4 Mbps</option>
+    <option value="8000000">8 Mbps</option>
+  </select>
+
+  <label for="duration">Kayıt Süresi</label>
+
+  <select id="duration">
+    <option value="15">15 saniye</option>
+    <option value="60">60 saniye</option>
+  </select>
+
+  <button id="start">Kaydı Başlat</button>
+
+  <p id="status">Hazır</p>
+
+  <div id="result"></div>
+
+  <a
+    id="download"
+    class="download"
+    hidden>
+    Videoyu İndir
+  </a>
+
+</div>
 
 <script>
 const preview = document.getElementById("preview");
 const statusText = document.getElementById("status");
 const result = document.getElementById("result");
+const startButton = document.getElementById("start");
+const downloadLink = document.getElementById("download");
 
-let stream;
-let recorder;
+let stream = null;
+let recorder = null;
+let recordingTimer = null;
+let videoUrl = null;
 
+
+// Tarayıcının desteklediği video formatını seçer.
+function getSupportedMimeType() {
+
+  const mimeTypes = [
+    "video/mp4",
+    "video/mp4;codecs=avc1",
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm"
+  ];
+
+  return mimeTypes.find(type =>
+    MediaRecorder.isTypeSupported(type)
+  ) || null;
+}
+
+
+// Kamera ve kayıt işlemlerini başlatır.
 async function startRecording() {
+
+  startButton.disabled = true;
+  result.textContent = "";
+  downloadLink.hidden = true;
+
+  if (videoUrl) {
+    URL.revokeObjectURL(videoUrl);
+    videoUrl = null;
+  }
+
   try {
-    result.textContent = "";
 
     const bitrate = Number(
       document.getElementById("bitrate").value
@@ -74,6 +193,9 @@ async function startRecording() {
       document.getElementById("duration").value
     );
 
+    statusText.textContent = "Kamera açılıyor...";
+
+    // Kamera erişimi.
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
         width: { ideal: 1280 },
@@ -85,110 +207,244 @@ async function startRecording() {
 
     preview.srcObject = stream;
 
+    await preview.play();
+
     const track = stream.getVideoTracks()[0];
     const settings = track.getSettings();
 
-    const mimeTypes = [
-      "video/mp4",
-      "video/webm;codecs=vp9",
-      "video/webm;codecs=vp8",
-      "video/webm"
-    ];
-
-    const mimeType = mimeTypes.find(type =>
-      MediaRecorder.isTypeSupported(type)
-    );
+    // Desteklenen formatı belirle.
+    const mimeType = getSupportedMimeType();
 
     if (!mimeType) {
-      throw new Error("Desteklenen video formatı bulunamadı.");
+      throw new Error(
+        "Tarayıcı desteklenen bir video formatı sunmuyor."
+      );
     }
 
     const chunks = [];
 
+    // MediaRecorder oluştur.
     recorder = new MediaRecorder(stream, {
-      mimeType,
+      mimeType: mimeType,
       videoBitsPerSecond: bitrate
     });
 
-    const startTime = performance.now();
+    let startTime = null;
+    let endTime = null;
 
+    // Kayıt başladığında zamanı al.
+    recorder.onstart = () => {
+
+      startTime = performance.now();
+
+      statusText.textContent =
+        "Kayıt başladı: " + duration + " saniye";
+    };
+
+    // Video parçalarını topla.
     recorder.ondataavailable = event => {
-      if (event.data.size > 0) {
+
+      if (event.data && event.data.size > 0) {
         chunks.push(event.data);
       }
     };
 
+    // Kayıt tamamlandığında rapor oluştur.
     recorder.onstop = () => {
-      const endTime = performance.now();
-      const actualDuration = (endTime - startTime) / 1000;
+
+      endTime = performance.now();
+
+      const actualDuration =
+        (endTime - startTime) / 1000;
 
       const blob = new Blob(chunks, {
         type: recorder.mimeType
       });
 
-      const actualMB = blob.size / 1000000;
-      const theoreticalMB = (bitrate * duration) / 8 / 1000000;
+      // Dosya boyutları.
+      const actualBytes = blob.size;
+      const actualMB = actualBytes / 1000000;
 
+      const theoreticalMB =
+        (bitrate * duration) / 8 / 1000000;
+
+      // Gerçek ortalama bitrate.
       const actualMbps =
-        (blob.size * 8) / actualDuration / 1000000;
+        (actualBytes * 8) /
+        actualDuration /
+        1000000;
 
+      // Teorik ve gerçek boyut farkı.
       const deviation =
-        ((actualMB - theoreticalMB) / theoreticalMB) * 100;
+        ((actualMB - theoreticalMB) /
+        theoreticalMB) * 100;
 
+      // Dosya uzantısı.
+      const extension =
+        recorder.mimeType.includes("mp4")
+          ? "mp4"
+          : "webm";
+
+      // Test raporu.
       const report = {
+
         device: navigator.userAgent,
-        browser: navigator.userAgent,
-        requestedBitrate: bitrate / 1000000 + " Mbps",
+
+        platform: navigator.platform,
+
+        requestedBitrate:
+          bitrate / 1000000 + " Mbps",
+
         recorderBitrate:
-          recorder.videoBitsPerSecond / 1000000 + " Mbps",
-        resolution: settings.width + "x" + settings.height,
-        requestedDuration: duration + " seconds",
-        actualDuration: actualDuration.toFixed(2) + " seconds",
-        format: recorder.mimeType,
-        theoreticalSize: theoreticalMB.toFixed(2) + " MB",
-        actualSize: actualMB.toFixed(2) + " MB",
-        measuredAverageBitrate: actualMbps.toFixed(2) + " Mbps",
-        deviation: deviation.toFixed(2) + "%"
+          (
+            recorder.videoBitsPerSecond /
+            1000000
+          ).toFixed(2) + " Mbps",
+
+        resolution:
+          settings.width + "x" + settings.height,
+
+        frameRate:
+          settings.frameRate || "Bilinmiyor",
+
+        requestedDuration:
+          duration + " saniye",
+
+        actualDuration:
+          actualDuration.toFixed(2) + " saniye",
+
+        format:
+          recorder.mimeType,
+
+        fileExtension:
+          extension,
+
+        theoreticalSize:
+          theoreticalMB.toFixed(2) + " MB",
+
+        actualSize:
+          actualMB.toFixed(2) + " MB",
+
+        actualSizeBytes:
+          actualBytes,
+
+        measuredAverageBitrate:
+          actualMbps.toFixed(2) + " Mbps",
+
+        deviation:
+          deviation.toFixed(2) + "%",
+
+        testDate:
+          new Date().toLocaleString("tr-TR")
       };
 
       result.textContent =
         JSON.stringify(report, null, 2);
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `test_${bitrate / 1000000}Mbps_${duration}s`;
-      a.click();
+      // Video indirme bağlantısı.
+      videoUrl = URL.createObjectURL(blob);
 
-      statusText.textContent = "Kayıt tamamlandı.";
+      downloadLink.href = videoUrl;
 
-      stream.getTracks().forEach(track => track.stop());
+      downloadLink.download =
+        `test_${bitrate / 1000000}Mbps_${duration}s.${extension}`;
+
+      downloadLink.hidden = false;
+
+      statusText.textContent =
+        "Kayıt tamamlandı.";
+
+      // Kamerayı kapat.
+      stream.getTracks().forEach(track => {
+        track.stop();
+      });
+
       preview.srcObject = null;
+
+      stream = null;
+      recorder = null;
+
+      startButton.disabled = false;
     };
 
+    recorder.onerror = event => {
+      statusText.textContent =
+        "Kayıt hatası: " +
+        (event.error?.message || "Bilinmeyen hata");
+
+      stopCamera();
+    };
+
+    // Kaydı başlat.
     recorder.start();
 
-    statusText.textContent =
-      "Kayıt başladı: " + duration + " saniye";
+    // Belirlenen süre sonunda kaydı durdur.
+    recordingTimer = setTimeout(() => {
 
-    setTimeout(() => {
-      if (recorder.state === "recording") {
+      if (recorder && recorder.state === "recording") {
         recorder.stop();
       }
+
     }, duration * 1000);
 
   } catch (error) {
-    statusText.textContent = "Hata: " + error.message;
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-    }
+
+    statusText.textContent =
+      "Hata: " + error.message;
+
+    stopCamera();
+
   }
 }
 
-document.getElementById("start").addEventListener(
+
+// Kamera kaynaklarını temizler.
+function stopCamera() {
+
+  if (recordingTimer) {
+    clearTimeout(recordingTimer);
+    recordingTimer = null;
+  }
+
+  if (recorder && recorder.state !== "inactive") {
+    recorder.stop();
+  }
+
+  if (stream) {
+    stream.getTracks().forEach(track => {
+      track.stop();
+    });
+
+    stream = null;
+  }
+
+  preview.srcObject = null;
+  startButton.disabled = false;
+}
+
+
+// Buton olayını dinle.
+startButton.addEventListener(
   "click",
   startRecording
 );
+
+
+// Sayfa kapatılırken kaynakları temizle.
+window.addEventListener("beforeunload", () => {
+
+  if (stream) {
+    stream.getTracks().forEach(track => {
+      track.stop();
+    });
+  }
+
+  if (videoUrl) {
+    URL.revokeObjectURL(videoUrl);
+  }
+
+});
+
 </script>
 
 </body>
